@@ -119,6 +119,8 @@ Temperature: 27 C                    (from the TPS65186)
 Battery: 4.12 V
 ```
 
+A second Inkplate 6 of the same model (MAC `fc:f5:c4:1b:51:64`, tested 2026-11-10) gives the same results: 24 °C, and **4.15 V with no battery plugged in**. With no battery, the battery reading shows the charger's output voltage, not a real cell voltage. Its factory firmware was overwritten without a separate backup; the backup above applies to it as well.
+
 The first upload of `hello_world` didn't change the screen, but `diag` (same drawing code, with a 500 ms delay before `display.begin()`) did. The cause hasn't been confirmed yet.
 
 The library's own Inkplate 6 examples check for `ARDUINO_ESP32_DEV`, but board package 4.x defines `ARDUINO_INKPLATE6` for this board. Those examples therefore fail with "Wrong board selection". Change the `#if` check in the example to `ARDUINO_INKPLATE6` (as in [`sketches/hello_world`](sketches/hello_world/hello_world.ino)). The library itself supports the board.
