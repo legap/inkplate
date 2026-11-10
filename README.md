@@ -79,6 +79,7 @@ Battery life is dominated by Wi-Fi time. As a rough estimate, waking once an hou
 | `arduino-cli` (via scoop) | 1.5.1 |
 | Board package `soldered-inkplate-boards:esp32` | 4.0.0 |
 | Library `InkplateLibrary` | 11.2.1 |
+| Library `ArduinoJson` (for `ha_dashboard`) | 7.4.3 |
 
 To reproduce on another machine:
 
@@ -96,6 +97,10 @@ arduino-cli core install soldered-inkplate-boards:esp32
 
 ```bash
 arduino-cli lib install InkplateLibrary
+```
+
+```bash
+arduino-cli lib install ArduinoJson
 ```
 
 The board target for this board is **`soldered-inkplate-boards:esp32:Inkplate6`** ("e-radionica Inkplate 6" in the Arduino IDE).
@@ -125,6 +130,44 @@ The first upload of `hello_world` didn't change the screen, but `diag` (same dra
 
 The library's own Inkplate 6 examples check for `ARDUINO_ESP32_DEV`, but board package 4.x defines `ARDUINO_INKPLATE6` for this board. Those examples therefore fail with "Wrong board selection". Change the `#if` check in the example to `ARDUINO_INKPLATE6` (as in [`sketches/hello_world`](sketches/hello_world/hello_world.ino)). The library itself supports the board.
 
+## Project: Home Assistant dashboard
+
+[`sketches/ha_dashboard`](sketches/ha_dashboard/ha_dashboard.ino) shows the room climate from Home Assistant together with the local weather forecast. It runs on battery: it wakes every 15 minutes, fetches the data over Wi-Fi, redraws the screen and goes back to deep sleep. An update takes about 5 s.
+
+Screen layout (800 × 600, 3-bit grayscale, German labels):
+
+| Area | Content |
+|---|---|
+| Header | Date, battery voltage, time of the last update |
+| Top left | Current weather: icon, temperature, condition, outdoor sensor (Balkon), pressure and wind, today's high/low and rain |
+| Top right | Temperature and humidity for each room |
+| Middle | Next 24 hours: temperature curve with hourly rain bars |
+| Bottom | Next 5 days: icon, high/low, rain |
+
+Data sources in Home Assistant:
+- **Room sensors:** Shelly Plus H&T (`sensor.shellyplusht_<room>_temperature` / `_humidity`).
+- **Forecast:** `weather.forecast_gap_home` from the Met.no integration. It's a point forecast for the home coordinates set in HA (east of Lucerne). Met.no also uses the HA elevation setting, which is currently 0 m; set the real elevation in HA so forecast temperatures aren't corrected to sea level.
+
+How it works:
+- **3 HTTP calls per update**, authenticated with a long-lived access token:
+  - `POST /api/template` renders all current values (sensors, weather, sun, time and UTC offset) into one compact JSON.
+  - `POST /api/services/weather/get_forecasts?return_response` is called once with `type: hourly` and once with `type: daily`.
+- **Offline fallback:** the last good data is kept in RTC memory, which survives deep sleep. If Wi-Fi or HA is unreachable, that data is redrawn with "Stand HH:MM · HA nicht erreichbar" in the header. Without any data yet, an error screen shows the reason.
+- **Icons:** the weather icons are drawn with graphics primitives, so they scale to any size.
+- **Umlauts:** the GFX fonts (FreeSans, copied from the InkplateLibrary examples into `src/fonts`) only cover ASCII. `drawText()` therefore draws ä/ö/ü as the base letter with two dots on top, and also draws the degree sign and the middle dot. ß is written as "ss".
+
+Setup:
+1. Copy [`secrets.example.h`](sketches/ha_dashboard/secrets.example.h) to `secrets.h` in the same folder. Fill in the Wi-Fi name and password (2.4 GHz only), the HA URL and a long-lived access token (HA profile → Security → Long-lived access tokens). **`secrets.h` is in `.gitignore` and must never be committed.**
+2. Adjust the rooms, the outdoor sensor, the weather entity and the refresh interval in [`config.h`](sketches/ha_dashboard/config.h).
+3. Compile and upload:
+   ```bash
+   arduino-cli compile --fqbn soldered-inkplate-boards:esp32:Inkplate6 sketches/ha_dashboard
+   ```
+   ```bash
+   arduino-cli upload -p COM10 --fqbn soldered-inkplate-boards:esp32:Inkplate6 sketches/ha_dashboard
+   ```
+4. After each update, the serial output (115200 baud) shows the number of forecast entries fetched, or the error. The board is in deep sleep between updates; press reset to update immediately.
+
 ## What it is good for
 
 E-paper is sharp, readable in sunlight, and uses power only while the image changes. That makes this board a good fit for **slow-changing information on battery**. The usual pattern is: wake up → fetch data over Wi-Fi → draw → deep sleep for minutes or hours. On a typical LiPo, that runs for weeks to months.
@@ -152,4 +195,5 @@ Project ideas:
 1. ~~Back up the factory firmware~~ (done: `firmware/inkplate6-factory.bin`).
 2. ~~Install the Arduino board package and the Inkplate library~~ (done). ~~Upload `sketches/hello_world`~~ (done).
 3. When the batteries arrive: check the polarity, connect, and confirm charging and the battery-voltage readout with `sketches/diag`.
-4. Pick a first project, such as a weather + calendar dashboard with deep sleep.
+4. ~~Pick a first project~~ (done: [Home Assistant dashboard](#project-home-assistant-dashboard)).
+5. Measure the real battery life of the dashboard, and adjust `REFRESH_MINUTES` if needed.
